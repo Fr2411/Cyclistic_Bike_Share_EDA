@@ -1,0 +1,281 @@
+---
+title: "Bike_share"
+author: "Fazlay Rabby"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: 
+    toc: yes
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Scenario
+
+The director of marketing believes the company's future success depends on maximizing the number of annual memberships. Therefore, it's crucial to understand how casual riders and annual members use Cyclistic bikes differently. From these insights, the marketing team will design a new marketing strategy to convert casual riders into annual members.
+
+### Data Source:
+
+Cyclistic Bike Share Data-set (Apr,2021 - Mar,2022)
+
+<https://divvy-tripdata.s3.amazonaws.com/index.html>
+
+## Project Objective:
+
+Analyzing last 12 months of trip data from Cyclistic Bike Share Data-set to get insight of how Casual riders & Annual members differ, why casual riders would buy membership & how digital media could effect their marketing tactics.
+
+## Library setup for necessary packages
+
+```{r library setup, warning=FALSE}
+library(tidyverse)
+library(skimr)
+library(dplyr)
+library(lubridate)
+library(readr)
+library(ggplot2)
+```
+
+## Combine data of last 12 months into one file for further exploration
+
+```{r raw files to dataframe, warning=FALSE}
+DF_raw <- read_csv(list.files(pattern="*tripdata.csv"))
+```
+
+## First look at the data
+
+```{r warning=FALSE}
+skim_without_charts(DF_raw)
+```
+
+## Data Limitations:
+
+In this data-set we have Trip Id but we don't have the Rider Id which may impact on the analysis. Here we can analyze the number of trips taken by Casual or Annual Members but we can't figure out how many casual members or annual members we are talking about.
+
+## Processing data
+
+```{r warning=FALSE}
+DF_trimmed<- DF_raw |> 
+  rename(subscription_type = member_casual, 
+         start_time=started_at, 
+         end_time =ended_at, 
+         trip_id = ride_id, 
+         bike_type =rideable_type, 
+         start_station = start_station_name, 
+         end_station= end_station_name) |> 
+  mutate(trip_length = as.numeric(end_time-start_time), 
+         month= month(start_time, label = TRUE), 
+         day = wday(start_time,label = TRUE), 
+         date = day(start_time),hour = hour(start_time))
+
+```
+
+## Removing empty rows to avoid bias in analysis.
+
+```{r}
+DF_trimmed <- drop_na(DF_trimmed) 
+```
+
+## Review Data
+
+```{r warning=FALSE}
+skim_without_charts(DF_trimmed)
+```
+
+## A Quick overview of how riding patter changes over the time period of a year.
+
+```{r ### Now I can check the number of trips all through the year, warning=FALSE, paged.print=TRUE}
+monthly_trips <- DF_trimmed |>
+  select(month, trip_id) |> 
+  group_by(month) |> 
+  summarise(number_of_trips_thoushand = n_distinct(trip_id)/1000)
+```
+
+##Observation: A gradual increase is observed from Mar-2021 to Jul-2021 & from then there is also a gradual decrease which may aligned to the weather patter of Chicago City.
+
+## Adding weather record of last 12 years for comparison with number of rides.
+
+```{r warning=FALSE}
+temperature <- read.csv(list.files(pattern= "*temparature*")) |> 
+  select(month,temperature) |> 
+  mutate(temperature, temperature = (temperature-32)*(5/9))
+#join temperature from Chicago Temperature record
+monthly_trips <- left_join(temperature,monthly_trips, by = "month")
+
+```
+
+## How the weather/temperature impact on the riding pattern?
+
+```{r check temparature impact on riding, warning=FALSE}
+monthly_trips <- monthly_trips
+monthly_trips$month <- factor(monthly_trips$month,
+                              levels = c("Apr", "May", "Jun", "Jul", "Aug","Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
+ggplot(data= monthly_trips, 
+       mapping = aes(x=month, y= number_of_trips_thoushand,fill = temperature)) + 
+  geom_col() + 
+  labs(x= "Months", y= "Number of Trips (K)", 
+       title = "Weather Impact on Bike Riding over last 1 Year") + 
+  theme(legend.position = "right", legend.title=element_text(angle = 90)) +
+  guides(fill = guide_legend(title = "Temparature Scale", reverse = TRUE))
+  
+```
+
+## Observation
+
+It's clear that riding tendency increase with the temperature & decrease again as it gets colder in that locality.
+
+## What about month, week & daily pattern..?
+
+```{r warning=FALSE}
+#Average monthly riding pattern
+days_of_month <- DF_trimmed |> 
+  select(date,trip_id) |> 
+  group_by(date) |> 
+  summarise(number_of_trips_thoushand = n_distinct(trip_id)/1000)
+
+ggplot(days_of_month, mapping = aes(x= date,y=number_of_trips_thoushand, fill = number_of_trips_thoushand))+
+  geom_col() + 
+  geom_smooth(color = "black") + 
+  labs(x= "Days of Months", 
+       y= "Number of Trips (K)", 
+       title = "Monthly Riding Pattern")+
+  theme(legend.position = "right", 
+        legend.title=element_text(angle = 90)) +
+  guides(fill = guide_legend(title = "Avg Trips/Day", reverse = TRUE))+
+  theme(legend.position = "none", 
+        plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+## Observation:
+
+The result show a downtrend on last 10 days of a given month according to the trip record compared to the first 20 days.
+
+## Average weekly riding pattern analysis
+
+```{r warning=FALSE}
+days_of_week <- DF_trimmed |> 
+  select(day,trip_id, subscription_type) |> 
+  group_by(day, subscription_type) |> 
+  summarise(number_of_trips_thoushand = n_distinct(trip_id)/1000)
+ggplot(days_of_week, 
+       mapping = aes(x= day,y=number_of_trips_thoushand, fill = day))+
+  geom_col()+ 
+  labs(x= "Days of Week", 
+       y= "Number of Trips (K)", 
+       title = "Weekly Riding Pattern 1")+
+  theme(legend.position = "none", 
+        plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+## Observation:
+
+The highest trips are made on weekends. Is it the same for both types of riders...?
+
+## Further drill down to differentiate casual vs annual riders riding patter on weekly basis
+
+```{r warning=FALSE}
+#Average weekly riding pattern by riders type
+days_of_week_2 <- DF_trimmed |> 
+  select(day,trip_id,subscription_type) |> 
+  group_by(day, subscription_type) |> 
+  summarise(number_of_trips_thoushand = n_distinct(trip_id)/1000)
+
+
+ggplot(days_of_week_2, mapping = aes(x= day,y=number_of_trips_thoushand, fill = number_of_trips_thoushand))+
+  geom_col()+
+  facet_wrap(~subscription_type)+
+  labs(x= "Days of Week", 
+       y= "Number of Trips (K)", 
+       title = "Weekly Riding Pattern 2")+
+  theme(legend.position = "right", 
+        legend.title=element_text(angle = 90),
+        plot.title = element_text(face = "bold", hjust = 0.5)) +
+  guides(fill = guide_legend(title = "Avg Trips/Day (K)", reverse = TRUE))
+# Data is showing that casual riders ride bikes on weekend in higher number
+
+```
+
+## Observation:
+
+Here we can see an interesting difference in riding patter. Annual members more likely to use bikes on week days apparently as commute to the work but Casual riders use bike mostly on weekends (Sat & Sun) which seems like recreational.
+
+## In this stage of analysis we shall look at Hourly patter all through the week
+
+```{r warning=FALSE}
+hourly <- DF_trimmed |>  
+  select(hour,trip_id,subscription_type, day) |> 
+  group_by(hour, subscription_type, day) |> 
+  summarise(number_of_trips_thoushand = n_distinct(trip_id)/1000)
+
+ggplot(hourly, mapping = aes(x= hour,y=number_of_trips_thoushand, fill= subscription_type))+
+  geom_col()+
+  facet_wrap(~day)+
+  labs(x= "Hours of Day", 
+       y= "Number of Trips (K)", 
+       title = "Hourly Riding Pattern")+
+  theme(legend.position = "bottom",
+        plot.title = element_text(face = "bold", hjust = 0.5)) +
+  guides(fill = guide_legend(title = "Subscription Type"))
+```
+
+## Observation:
+
+As earlier we observed the riding patter of Casual members, here we see nice and smooth increasing & decreasing pattern on weekends which also signifies the number of trips made by casual members are different than the other week days of the week.
+
+## Bike Preference
+
+```{r warning=FALSE}
+bike_type <- DF_trimmed |> 
+  count(bike_type,subscription_type)
+ggplot(bike_type, aes(x= bike_type,y=n, fill = bike_type)) +
+  geom_col()+ 
+  facet_wrap(~subscription_type)+
+  labs(x= "Bike Type", y= "Number of Trips",
+       title = "Bike Preferences by Subscribers")+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) + 
+  guides(fill = guide_legend(title = "Bike Type"))
+```
+
+## Observation
+
+Seems like docked bike is popular only to the Casual Riders & a significant difference is usage of Classic Bike
+
+## Let's have a glimpse of hot-spots/popular starting points for casual bikers
+
+```{r Make a list of top 50 popular start stations for Casual Riders, warning=FALSE, paged.print=TRUE}
+popular_start_station <- DF_trimmed |> 
+  filter(subscription_type == "casual") |> 
+  select(start_station, subscription_type, trip_id, start_lat,start_lng) |> 
+  group_by(start_station) |> 
+  summarise(start_count = as.numeric(n_distinct(trip_id))) |> 
+  arrange(desc(start_count)) |> 
+  top_n(50)
+  
+popular_start_station |> 
+  ggplot(aes(x= reorder(start_station,-start_count), 
+             y= start_count, fill= start_count))+ 
+  geom_col()+guides(x = guide_axis(angle = 90))+
+  labs(x= "Station Name", 
+       y= "Number of Trips", 
+       title = "Top 50 Starting Station")+
+  theme(legend.position = "none", 
+        plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+
+## Observation:
+
+Here we have made a list of Top 50 Start Station based for casual riders based on previous record which can be used as top priority to launch the marketing campaign
+
+# Important Insights from the Analysis 
+
+-   The main focus of the digital campaign shall be to spread the awareness of benefits of riding bikes on everyday (instead of weekend only)
+-   From April we shall start to provide early bird offers
+-   Saturday & Sunday is the best time to campaign if we want to best use our resources
+-   We have a list of top 50 popular Start Stations from where Casual Members start ride which can be on our priority list to launch the campaign
+
+# Future Analysis Scopes:
+
+-   Once the campaign is launched we can collect riders Demographic information to further analyse by Age group, gender etc & only then we can compare exactly how many casual/annual riders are riding our bikes & better understand their riding pattern.
+-   Cyclistic Management may take initiative to introduce a Customized Mobile Application for the Riders with can be helpful for both riders & the company.
